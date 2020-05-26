@@ -9,8 +9,8 @@ import (
 
 // DefaultLayout carries default structure
 type DefaultLayout struct {
-	docker DockerInterface
-	layout *widgets.Tree
+	layoutGen     chan *widgets.Tree
+	currentLayout *widgets.Tree
 }
 
 type cNode struct {
@@ -21,31 +21,41 @@ func (c cNode) String() string {
 	return fmt.Sprintf("%10s: , %10s: , %10s: ,", c.id[:10], c.name, c.state)
 }
 
-func generateView(docker DockerInterface) *widgets.Tree {
-	containers := docker.ListContainers()
-	nodes := make([]*widgets.TreeNode, len(containers))
-
-	for _, c := range containers {
-		nodes[0] = &widgets.TreeNode{
-			Value:    cNode{id: c.ID, name: c.Names[0]},
-			Expanded: true,
-		}
-	}
-	l := widgets.NewTree()
-	l.TextStyle = ui.NewStyle(ui.ColorYellow)
-	l.WrapText = false
-	l.SetNodes(nodes)
-	x, y := ui.TerminalDimensions()
-	l.SetRect(0, 0, x, y)
-	return l
-}
-
 // InitDefaultLayout initializes default layout
 func InitDefaultLayout(docker DockerInterface) *DefaultLayout {
-	return &DefaultLayout{
-		docker: docker,
-		layout: generateView(docker),
+	ch := make(chan *widgets.Tree)
+	go func() {
+		for {
+			select {
+			case ch <- func() *widgets.Tree {
+				containers := docker.ListContainers()
+				nodes := make([]*widgets.TreeNode, len(containers))
+
+				for _, c := range containers {
+					nodes[0] = &widgets.TreeNode{
+						Value:    cNode{id: c.ID, name: c.Names[0]},
+						Expanded: true,
+					}
+				}
+				l := widgets.NewTree()
+				l.TextStyle = ui.NewStyle(ui.ColorYellow)
+				l.WrapText = false
+				l.SetNodes(nodes)
+				x, y := ui.TerminalDimensions()
+				l.SetRect(0, 0, x, y)
+				return l
+			}():
+			case <-ch:
+				fmt.Println("Stopping GoRoutine")
+				return
+			}
+		}
+	}()
+	d := &DefaultLayout{
+		layoutGen:     ch,
+		currentLayout: <-ch,
 	}
+	return d
 }
 
 // HandleEvent handles the keyboard/mouse event for layout
@@ -65,6 +75,6 @@ func (d *DefaultLayout) HandleEvent(e ui.Event) LayoutAction {
 
 // Refresh provides updated layout
 func (d *DefaultLayout) Refresh() []ui.Drawable {
-	//	go generateView(d.docker)
-	return []ui.Drawable{d.layout}
+	d.currentLayout = <-d.layoutGen
+	return []ui.Drawable{d.currentLayout}
 }
