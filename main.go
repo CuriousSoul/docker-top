@@ -13,12 +13,12 @@ func main() {
 	}
 	defer ui.Close()
 
-	_, err := NewDockerClient()
+	docker, err := NewDockerClient()
 	if err != nil {
 		log.Fatalf("Could not initialize client")
 	}
 
-	layoutCntrl, err := NewLayoutController()
+	layoutCntrl, err := NewLayoutController(docker)
 	if err != nil {
 		log.Fatalf("Could not initialize client")
 	}
